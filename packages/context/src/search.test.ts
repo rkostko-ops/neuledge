@@ -155,8 +155,7 @@ describe("search", () => {
       docPath: "docs/api-example.md",
       docTitle: "API",
       sectionTitle: "Example",
-      content:
-        "The cacheHandler function manages the response storage layer.",
+      content: "The cacheHandler function manages the response storage layer.",
       tokens: 30,
       hasCode: 1,
     });
@@ -193,6 +192,35 @@ describe("search", () => {
     } finally {
       delete process.env.CONTEXT_MAX_TOKENS;
     }
+  });
+
+  it("expands tech abbreviations in queries", () => {
+    insertChunk(db, {
+      docPath: "docs/identity.md",
+      docTitle: "Identity",
+      sectionTitle: "Setup",
+      content: "Authentication is configured via environment variables.",
+      tokens: 30,
+    });
+    rebuildFtsIndex(db);
+
+    // "auth" should find "authentication" via alias expansion
+    const result = search(db, "auth");
+    expect(result.results).toHaveLength(1);
+  });
+
+  it("does not expand non-aliased words", () => {
+    insertChunk(db, {
+      docPath: "docs/routing.md",
+      docTitle: "Routing",
+      sectionTitle: "Basics",
+      content: "File-system based router for pages.",
+      tokens: 30,
+    });
+    rebuildFtsIndex(db);
+
+    const result = search(db, "routing");
+    expect(result.results).toHaveLength(1);
   });
 
   it("returns empty results when FTS query fails", () => {
