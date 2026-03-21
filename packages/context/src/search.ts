@@ -63,7 +63,8 @@ function searchFts(db: Database.Database, query: string): ChunkMatch[] {
         c.section_title as sectionTitle,
         c.content,
         c.tokens,
-        (bm25(chunks_fts, 5.0, 10.0, 1.0) * -1) as score
+        (bm25(chunks_fts, 5.0, 10.0, 1.0) * -1)
+          * CASE WHEN c.has_code = 1 THEN 1.2 ELSE 1.0 END as score
       FROM chunks_fts
       JOIN chunks c ON chunks_fts.rowid = c.id
       WHERE chunks_fts MATCH ?

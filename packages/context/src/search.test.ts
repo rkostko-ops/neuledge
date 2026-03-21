@@ -137,6 +137,33 @@ describe("search", () => {
     expect(result.results).toHaveLength(1);
   });
 
+  it("ranks chunks with code higher than prose-only", () => {
+    insertChunk(db, {
+      docPath: "docs/api-overview.md",
+      docTitle: "API",
+      sectionTitle: "Overview",
+      content: "The cacheHandler function manages the response storage layer.",
+      tokens: 30,
+      hasCode: 0,
+    });
+    insertChunk(db, {
+      docPath: "docs/api-example.md",
+      docTitle: "API",
+      sectionTitle: "Example",
+      content:
+        "The cacheHandler function manages the response storage layer.",
+      tokens: 30,
+      hasCode: 1,
+    });
+    rebuildFtsIndex(db);
+
+    const result = search(db, "cacheHandler");
+
+    expect(result.results).toHaveLength(2);
+    // The code chunk should rank higher due to the code boost
+    expect(result.results[0].title).toContain("Example");
+  });
+
   it("returns empty results when FTS query fails", () => {
     insertChunk(db, {
       docPath: "docs/test.md",
