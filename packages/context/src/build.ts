@@ -183,6 +183,53 @@ function astToMarkdown(nodes: Content[], source: string): string {
   return "";
 }
 
+/**
+ * Detect the highest heading depth > 1 in the AST.
+ * Usually h2, but h3 if no h2 exists.
+ */
+function detectSplitDepth(contentNodes: Content[]): number {
+  const depths = new Set<number>();
+  for (const node of contentNodes) {
+    if (node.type === "heading" && node.depth > 1) {
+      depths.add(node.depth);
+    }
+  }
+  return depths.size > 0 ? Math.min(...depths) : 2;
+}
+
+interface HeadingSection {
+  title: string;
+  nodes: Content[];
+}
+
+/**
+ * Split content nodes at a given heading depth.
+ * Returns sections with their heading title and child nodes.
+ */
+function splitOnHeading(nodes: Content[], depth: number): HeadingSection[] {
+  const sections: HeadingSection[] = [];
+  let currentTitle = "";
+  let currentNodes: Content[] = [];
+
+  for (const node of nodes) {
+    if (node.type === "heading" && node.depth === depth) {
+      if (currentNodes.length > 0) {
+        sections.push({ title: currentTitle, nodes: currentNodes });
+      }
+      currentTitle = getHeadingText(node);
+      currentNodes = [];
+    } else {
+      currentNodes.push(node);
+    }
+  }
+
+  if (currentNodes.length > 0) {
+    sections.push({ title: currentTitle, nodes: currentNodes });
+  }
+
+  return sections;
+}
+
 /** Remove MDX-specific tags from content. */
 function cleanMdxContent(content: string): string {
   // Remove React-style tags like <AppOnly>, <PagesOnly>, etc.
@@ -306,6 +353,81 @@ function splitAtParagraphs(
 }
 
 /**
+ * Recursively chunk content by descending heading levels.
+ * Splits at splitDepth, then if chunks still exceed MAX_CHUNK_TOKENS,
+ * recurses into the next heading level. Falls back to splitAtParagraphs.
+ */
+function chunkRecursively(
+  nodes: Content[],
+  source: string,
+  docPath: string,
+  docTitle: string,
+  parentTitle: string,
+  splitDepth: number,
+  maxDepth = 6,
+): DocSection[] {
+  const content = astToMarkdown(nodes, source);
+  const cleanedContent = cleanMdxContent(content);
+  const tokens = estimateTokens(cleanedContent);
+
+  // Small enough — return as single chunk
+  if (tokens <= MAX_CHUNK_TOKENS) {
+    if (!cleanedContent || tokens < MIN_CHUNK_TOKENS) return [];
+    if (isTableOfContents(parentTitle, cleanedContent)) return [];
+    return [
+      {
+        docPath,
+        docTitle,
+        sectionTitle: parentTitle,
+        content: cleanedContent,
+        tokens,
+        hasCode: hasCodeBlock(cleanedContent),
+      },
+    ];
+  }
+
+  // Try splitting at current depth
+  const subSections = splitOnHeading(nodes, splitDepth);
+
+  // If no split happened, try next depth
+  if (subSections.length <= 1 && splitDepth < maxDepth) {
+    return chunkRecursively(
+      nodes,
+      source,
+      docPath,
+      docTitle,
+      parentTitle,
+      splitDepth + 1,
+      maxDepth,
+    );
+  }
+
+  // If still no split possible, fall back to paragraph splitting
+  if (subSections.length <= 1) {
+    if (isTableOfContents(parentTitle, cleanedContent)) return [];
+    return splitAtParagraphs(cleanedContent, docPath, docTitle, parentTitle);
+  }
+
+  // Recurse into each sub-section
+  return subSections.flatMap(({ title, nodes: subNodes }) => {
+    const childTitle = title
+      ? parentTitle
+        ? `${parentTitle} > ${title}`
+        : title
+      : parentTitle;
+    return chunkRecursively(
+      subNodes,
+      source,
+      docPath,
+      docTitle,
+      childTitle,
+      splitDepth + 1,
+      maxDepth,
+    );
+  });
+}
+
+/**
  * Parse a markdown/MDX file and extract sections.
  */
 export function parseMarkdown(source: string, filePath: string): ParsedDoc {
@@ -321,18 +443,7 @@ export function parseMarkdown(source: string, filePath: string): ParsedDoc {
       ?.replace(/\.(md|mdx|qmd|rmd|adoc|rst)$/, "") ||
     "Untitled";
 
-  // Remove frontmatter and JSX import statements from source for extraction
-  let cleanSource = source;
-  const yamlNode = tree.children.find((n): n is Yaml => n.type === "yaml");
-  if (yamlNode?.position?.end?.offset) {
-    cleanSource = source.slice(yamlNode.position.end.offset);
-  }
-  // Remove import statements
-  cleanSource = cleanSource.replace(/^import\s+.*?[;\n]/gm, "");
-
-  const sections: DocSection[] = [];
-
-  // Find all h2 headings and their content
+  // Filter out frontmatter and JSX import statements from AST
   const contentNodes = tree.children.filter(
     (n) =>
       n.type !== "yaml" &&
@@ -347,75 +458,28 @@ export function parseMarkdown(source: string, filePath: string): ParsedDoc {
       ),
   );
 
-  let currentH2: string | null = null;
-  let currentNodes: Content[] = [];
+  // Skip h1 nodes — they are document titles, not section content
+  const nodesWithoutH1 = contentNodes.filter(
+    (n) => !(n.type === "heading" && n.depth === 1),
+  );
 
-  for (const node of contentNodes) {
-    if (node.type === "heading" && node.depth === 2) {
-      // Save previous section
-      if (currentH2 && currentNodes.length > 0) {
-        const content = astToMarkdown(currentNodes, source);
-        const cleanedContent = cleanMdxContent(content);
-        // Skip TOC sections (high link ratio or TOC-like title)
-        if (cleanedContent && !isTableOfContents(currentH2, cleanedContent)) {
-          const tokens = estimateTokens(cleanedContent);
-          if (tokens > MAX_CHUNK_TOKENS) {
-            sections.push(
-              ...splitAtParagraphs(
-                cleanedContent,
-                filePath,
-                docTitle,
-                currentH2,
-              ),
-            );
-          } else if (tokens >= MIN_CHUNK_TOKENS) {
-            sections.push({
-              docPath: filePath,
-              docTitle,
-              sectionTitle: currentH2,
-              content: cleanedContent,
-              tokens,
-              hasCode: hasCodeBlock(cleanedContent),
-            });
-          }
-        }
-      }
-      currentH2 = getHeadingText(node);
-      currentNodes = [];
-    } else if (currentH2) {
-      currentNodes.push(node);
-    } else if (node.type === "heading" && node.depth === 1) {
-    } else {
-      // Content before first h2 - use docTitle as section
-      if (!currentH2) {
-        currentH2 = "Introduction";
-      }
-      currentNodes.push(node);
-    }
-  }
+  const splitDepth = detectSplitDepth(nodesWithoutH1);
+  const topSections = splitOnHeading(nodesWithoutH1, splitDepth);
 
-  // Save last section
-  if (currentH2 && currentNodes.length > 0) {
-    const content = astToMarkdown(currentNodes, source);
-    const cleanedContent = cleanMdxContent(content);
-    // Skip TOC sections (high link ratio or TOC-like title)
-    if (cleanedContent && !isTableOfContents(currentH2, cleanedContent)) {
-      const tokens = estimateTokens(cleanedContent);
-      if (tokens > MAX_CHUNK_TOKENS) {
-        sections.push(
-          ...splitAtParagraphs(cleanedContent, filePath, docTitle, currentH2),
-        );
-      } else if (tokens >= MIN_CHUNK_TOKENS) {
-        sections.push({
-          docPath: filePath,
-          docTitle,
-          sectionTitle: currentH2,
-          content: cleanedContent,
-          tokens,
-          hasCode: hasCodeBlock(cleanedContent),
-        });
-      }
-    }
+  const sections: DocSection[] = [];
+
+  for (const { title, nodes } of topSections) {
+    const sectionTitle = title || "Introduction";
+    sections.push(
+      ...chunkRecursively(
+        nodes,
+        source,
+        filePath,
+        docTitle,
+        sectionTitle,
+        splitDepth + 1,
+      ),
+    );
   }
 
   return {
