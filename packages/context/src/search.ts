@@ -50,8 +50,47 @@ function buildQuery(topic: string): string {
     .trim();
 }
 
+const TECH_ALIASES: Record<string, string[]> = {
+  auth: ["authentication"],
+  config: ["configuration", "configure"],
+  db: ["database"],
+  err: ["error"],
+  req: ["request"],
+  res: ["response"],
+  fn: ["function"],
+  param: ["parameter"],
+  env: ["environment"],
+  dir: ["directory"],
+  pkg: ["package"],
+  deps: ["dependencies"],
+  async: ["asynchronous"],
+  sync: ["synchronous"],
+};
+
+/**
+ * Expand tech abbreviations to include full forms.
+ * Must be called AFTER buildQuery so parentheses survive.
+ * Uses explicit AND between terms because FTS5 requires it
+ * when parenthesized OR groups are present.
+ */
+function expandQuery(cleaned: string): string {
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return cleaned;
+
+  const parts = words.map((word) => {
+    const aliases = TECH_ALIASES[word.toLowerCase()];
+    if (!aliases) return word;
+    return `(${word} OR ${aliases.join(" OR ")})`;
+  });
+
+  // FTS5 needs explicit AND when parenthesized groups are mixed with terms
+  const hasGroup = parts.some((p) => p.startsWith("("));
+  return hasGroup ? parts.join(" AND ") : parts.join(" ");
+}
+
 function searchFts(db: Database.Database, query: string): ChunkMatch[] {
-  const ftsQuery = buildQuery(query);
+  const cleaned = buildQuery(query);
+  const ftsQuery = expandQuery(cleaned);
   if (!ftsQuery) return [];
 
   try {
