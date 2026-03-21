@@ -154,8 +154,10 @@ ${"The middleware allows you to run code. ".repeat(7)}
     // Code should estimate higher tokens per character than prose
     // With ~260 chars of code vs ~270 chars of prose, the code-heavy content
     // should produce a noticeably higher token-per-char ratio (>5% difference)
-    const codeRatio = codeResult.sections[0].tokens / codeResult.sections[0].content.length;
-    const proseRatio = proseResult.sections[0].tokens / proseResult.sections[0].content.length;
+    const codeRatio =
+      codeResult.sections[0].tokens / codeResult.sections[0].content.length;
+    const proseRatio =
+      proseResult.sections[0].tokens / proseResult.sections[0].content.length;
     expect(codeRatio).toBeGreaterThan(proseRatio * 1.05);
   });
 
@@ -245,6 +247,122 @@ This section contains the API reference documentation for the module.
     const result = parseMarkdown(source, "docs/api/reference.md");
 
     expect(result.sections[0].docPath).toBe("docs/api/reference.md");
+  });
+
+  it("splits h3 sections when no h2 exists", () => {
+    const source = `---
+title: API
+---
+
+# API Reference
+
+### GET /users
+
+Returns a list of users from the database.
+
+### POST /users
+
+Creates a new user in the database.
+
+### DELETE /users/:id
+
+Deletes a user from the database by their ID.
+`;
+
+    const result = parseMarkdown(source, "docs/api.md");
+
+    expect(result.sections.length).toBeGreaterThanOrEqual(3);
+    expect(result.sections[0].sectionTitle).toBe("GET /users");
+    expect(result.sections[1].sectionTitle).toBe("POST /users");
+    expect(result.sections[2].sectionTitle).toBe("DELETE /users/:id");
+  });
+
+  it("generates breadcrumb titles for nested headings", () => {
+    const longContent =
+      "This paragraph has enough text to contribute to the token count. ".repeat(
+        60,
+      );
+    const source = `---
+title: Guide
+---
+
+## Authentication
+
+### Basic Auth
+
+${longContent}
+
+### OAuth 2.0
+
+${longContent}
+
+## Other
+
+Short section.
+`;
+
+    const result = parseMarkdown(source, "docs/guide.md");
+
+    const authSections = result.sections.filter((s) =>
+      s.sectionTitle.includes("Authentication"),
+    );
+    expect(
+      authSections.some((s) => s.sectionTitle.includes("Basic Auth")),
+    ).toBe(true);
+    expect(authSections.some((s) => s.sectionTitle.includes("OAuth"))).toBe(
+      true,
+    );
+  });
+
+  it("preserves small h2 sections without over-splitting", () => {
+    const source = `---
+title: Quick Start
+---
+
+## Install
+
+Run npm install to get started.
+
+## Usage
+
+Import and use the library.
+`;
+
+    const result = parseMarkdown(source, "docs/quick.md");
+
+    expect(result.sections).toHaveLength(2);
+    expect(result.sections[0].sectionTitle).toBe("Install");
+    expect(result.sections[1].sectionTitle).toBe("Usage");
+  });
+
+  it("handles deep hierarchy h2 > h3 > h4", () => {
+    const longContent =
+      "Detailed explanation of this topic with enough words. ".repeat(20);
+    const source = `---
+title: Deep
+---
+
+## Module
+
+### Class
+
+#### Method A
+
+${longContent}
+
+#### Method B
+
+${longContent}
+
+### Another Class
+
+${longContent}
+`;
+
+    const result = parseMarkdown(source, "docs/deep.md");
+
+    const titles = result.sections.map((s) => s.sectionTitle);
+    expect(titles.some((t) => t.includes("Module"))).toBe(true);
   });
 });
 
