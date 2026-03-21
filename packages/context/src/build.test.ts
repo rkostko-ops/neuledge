@@ -138,9 +138,46 @@ ${"a".repeat(400)}
 
     const result = parseMarkdown(source, "docs/test.md");
 
-    // ~400 chars / 4 = ~100 tokens
-    expect(result.sections[0].tokens).toBeGreaterThan(90);
+    // ~400 chars of prose / 4.5 ≈ 89 tokens
+    expect(result.sections[0].tokens).toBeGreaterThan(80);
     expect(result.sections[0].tokens).toBeLessThan(110);
+  });
+
+  it("estimates more tokens for code-heavy content than prose", () => {
+    const codeContent = `---
+title: Test
+---
+
+## Section
+
+\`\`\`typescript
+const result = await fetch("https://api.example.com/v1/users", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "test", email: "test@example.com" }),
+});
+const data = await result.json();
+\`\`\`
+`;
+
+    const proseContent = `---
+title: Test
+---
+
+## Section
+
+${"The middleware allows you to run code. ".repeat(7)}
+`;
+
+    const codeResult = parseMarkdown(codeContent, "test.md");
+    const proseResult = parseMarkdown(proseContent, "test.md");
+
+    // Code should estimate higher tokens per character than prose
+    // With ~260 chars of code vs ~270 chars of prose, the code-heavy content
+    // should produce a noticeably higher token-per-char ratio (>5% difference)
+    const codeRatio = codeResult.sections[0].tokens / codeResult.sections[0].content.length;
+    const proseRatio = proseResult.sections[0].tokens / proseResult.sections[0].content.length;
+    expect(codeRatio).toBeGreaterThan(proseRatio * 1.05);
   });
 
   it("removes MDX component tags", () => {

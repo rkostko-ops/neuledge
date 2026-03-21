@@ -35,9 +35,14 @@ const HARD_LIMIT_TOKENS = 1200; // Absolute maximum - split unconditionally abov
 const MIN_CHUNK_TOKENS = 5; // Filter out trivial chunks like "<br/>" (2 tokens)
 const TOC_LINK_RATIO = 0.5; // Skip sections where >50% of content is links
 
-/** Rough token estimate: ~4 chars per token. */
+/** Estimate tokens: code uses ~3 chars/token, prose ~4.5 chars/token. */
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  const codeLength = (text.match(/```[\s\S]*?```/g) || []).reduce(
+    (sum, block) => sum + block.length,
+    0,
+  );
+  const proseLength = text.length - codeLength;
+  return Math.ceil(codeLength / 3 + proseLength / 4.5);
 }
 
 /** Check if content contains code blocks. */
