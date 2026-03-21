@@ -52,25 +52,29 @@ function searchFts(db: DatabaseConnection, query: string): ChunkMatch[] {
   const ftsQuery = buildQuery(query);
   if (!ftsQuery) return [];
 
-  // BM25 weights: doc_title, section_title, content
-  // Higher weight = more important for ranking
-  const stmt = db.prepare(`
-    SELECT
-      c.id,
-      c.doc_path as docPath,
-      c.doc_title as docTitle,
-      c.section_title as sectionTitle,
-      c.content,
-      c.tokens,
-      (bm25(chunks_fts, 5.0, 10.0, 1.0) * -1) as score
-    FROM chunks_fts
-    JOIN chunks c ON chunks_fts.rowid = c.id
-    WHERE chunks_fts MATCH ?
-    ORDER BY score DESC
-    LIMIT 20
-  `);
+  try {
+    // BM25 weights: doc_title, section_title, content
+    // Higher weight = more important for ranking
+    const stmt = db.prepare(`
+      SELECT
+        c.id,
+        c.doc_path as docPath,
+        c.doc_title as docTitle,
+        c.section_title as sectionTitle,
+        c.content,
+        c.tokens,
+        (bm25(chunks_fts, 5.0, 10.0, 1.0) * -1) as score
+      FROM chunks_fts
+      JOIN chunks c ON chunks_fts.rowid = c.id
+      WHERE chunks_fts MATCH ?
+      ORDER BY score DESC
+      LIMIT 20
+    `);
 
-  return stmt.all(ftsQuery) as ChunkMatch[];
+    return stmt.all(ftsQuery) as ChunkMatch[];
+  } catch {
+    return [];
+  }
 }
 
 function filterByRelevance(matches: ChunkMatch[]): ChunkMatch[] {
