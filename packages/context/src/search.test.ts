@@ -169,6 +169,32 @@ describe("search", () => {
     expect(result.results[0].title).toContain("Example");
   });
 
+  it("respects CONTEXT_MAX_TOKENS env override", () => {
+    for (let i = 0; i < 3; i++) {
+      insertChunk(db, {
+        docPath: `docs/section${i}.md`,
+        docTitle: `Section ${i}`,
+        sectionTitle: "Overview",
+        content: `Documentation about middleware features part ${i}.`,
+        tokens: 400,
+      });
+    }
+    rebuildFtsIndex(db);
+
+    // Default budget is 2000, so all 3 chunks (1200 tokens) should fit
+    const resultDefault = search(db, "middleware");
+    expect(resultDefault.results).toHaveLength(3);
+
+    // Override to 500 — only 1 chunk should fit
+    process.env.CONTEXT_MAX_TOKENS = "500";
+    try {
+      const resultLimited = search(db, "middleware");
+      expect(resultLimited.results).toHaveLength(1);
+    } finally {
+      delete process.env.CONTEXT_MAX_TOKENS;
+    }
+  });
+
   it("returns empty results when FTS query fails", () => {
     insertChunk(db, {
       docPath: "docs/test.md",

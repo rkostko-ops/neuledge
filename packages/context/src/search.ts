@@ -8,10 +8,12 @@ import { getMetaValue } from "./db.js";
 // - Smarter chunking: Improve section splitting with better context preservation
 // - Quality heuristics: Detect README-only repos, score documentation completeness
 
-const CONFIG = {
-  MAX_TOKENS: 2000,
-  RELEVANCE_DROP: 0.5,
-};
+function getConfig() {
+  return {
+    MAX_TOKENS: Number(process.env.CONTEXT_MAX_TOKENS) || 2000,
+    RELEVANCE_DROP: Number(process.env.CONTEXT_RELEVANCE_DROP) || 0.5,
+  };
+}
 
 export interface DocSnippet {
   title: string;
@@ -84,7 +86,7 @@ function filterByRelevance(matches: ChunkMatch[]): ChunkMatch[] {
 
   const topScore = first.score;
   // Keep matches that are within RELEVANCE_DROP of top score
-  const minScore = topScore * CONFIG.RELEVANCE_DROP;
+  const minScore = topScore * getConfig().RELEVANCE_DROP;
 
   return matches.filter((m) => m.score >= minScore);
 }
@@ -94,7 +96,7 @@ function applyTokenBudget(matches: ChunkMatch[]): ChunkMatch[] {
   let totalTokens = 0;
 
   for (const match of matches) {
-    if (totalTokens + match.tokens > CONFIG.MAX_TOKENS) break;
+    if (totalTokens + match.tokens > getConfig().MAX_TOKENS) break;
     result.push(match);
     totalTokens += match.tokens;
   }
