@@ -136,4 +136,21 @@ describe("search", () => {
 
     expect(result.results).toHaveLength(1);
   });
+
+  it("returns empty results when FTS query fails", () => {
+    insertChunk(db, {
+      docPath: "docs/test.md",
+      docTitle: "Test",
+      sectionTitle: "Section",
+      content: "Some content here",
+      tokens: 10,
+    });
+    rebuildFtsIndex(db);
+
+    // Drop the FTS table to simulate corruption
+    db.exec("DROP TABLE chunks_fts");
+
+    const result = search(db, "content");
+    expect(result.results).toHaveLength(0);
+  });
 });
